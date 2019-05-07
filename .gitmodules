@@ -1,0 +1,3 @@
+[submodule "physx/gengine"]
+	path = physx/gengine
+	url = https://github.com/lasagnaphil/gengine.git
