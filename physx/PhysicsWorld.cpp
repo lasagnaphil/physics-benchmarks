@@ -8,7 +8,7 @@
 PxDefaultAllocator PhysicsWorld::gAllocator = {};
 PxDefaultErrorCallback PhysicsWorld::gErrorCallback = {};
 
-void PhysicsWorld::init() {
+void PhysicsWorld::init(uint32_t numThreads = 16) {
     foundation = PxCreateFoundation(PX_PHYSICS_VERSION, gAllocator, gErrorCallback);
 
     if (!foundation) {
@@ -25,7 +25,7 @@ void PhysicsWorld::init() {
     pvd->connect(*transport, PxPvdInstrumentationFlag::eALL);
 
     physics = PxCreatePhysics(PX_PHYSICS_VERSION, *foundation,
-                              scale, recordMemoryAllocations, pvd);
+                              scale, true, pvd);
     if (!physics) {
         std::cerr << "PxCreatePhysics failed!" << std::endl;
         exit(EXIT_FAILURE);
@@ -37,11 +37,20 @@ void PhysicsWorld::init() {
         exit(EXIT_FAILURE);
     }
 
+    PxCudaContextManagerDesc cudaContextManagerDesc;
+    cudaContextManager = PxCreateCudaContextManager(*foundation, cudaContextManagerDesc, PxGetProfilerCallback());
+
     PxSceneDesc sceneDesc(physics->getTolerancesScale());
     sceneDesc.gravity = PxVec3(0.0f, -9.81f, 0.0f);
-    cpuDispatcher = PxDefaultCpuDispatcherCreate(16);
+    cpuDispatcher = PxDefaultCpuDispatcherCreate(numThreads);
     sceneDesc.cpuDispatcher = cpuDispatcher;
     sceneDesc.filterShader = PxDefaultSimulationFilterShader;
+
+    // enable CUDA
+    sceneDesc.cudaContextManager = cudaContextManager;
+    sceneDesc.flags |= PxSceneFlag::eENABLE_GPU_DYNAMICS;
+    sceneDesc.broadPhaseType = PxBroadPhaseType::eGPU;
+
     scene = physics->createScene(sceneDesc);
     scene->setVisualizationParameter(PxVisualizationParameter::eSCALE, 1.0f);
 

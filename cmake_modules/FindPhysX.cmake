@@ -7,8 +7,8 @@ if (NOT DEFINED PXSHARED_HOME)
     set(PXSHARED_HOME $ENV{PXSHARED_HOME})
 endif()
 
-set(PHYSX_HOME /home/lasagnaphil/packages/PhysX/physx/install/linux/PhysX)
-set(PXSHARED_HOME /home/lasagnaphil/packages/PhysX/physx/install/linux/PxShared)
+set(PHYSX_HOME /home/lasagnaphil/packages/PhysX/physx)
+set(PXSHARED_HOME /home/lasagnaphil/packages/PhysX/pxshared)
 
 set(PhysX_INCLUDE_DIR ${PHYSX_HOME}/include)
 set(PxShared_INCLUDE_DIR ${PXSHARED_HOME}/include)
@@ -41,10 +41,12 @@ endmacro()
 
 foreach(LIBTYPE debug profile checked release)
     string(TOUPPER ${LIBTYPE} LIBTYPE_CAPS)
+
     find_library(PhysX_LIBRARY_BASE_${LIBTYPE_CAPS}
             NAMES libPhysX_static_${LIBFOLDERSUFFIX}.a
             PATHS ${PhysX_LIBRARY_DIR}/${LIBTYPE})
     list(APPEND PhysX_LIBRARIES_${LIBTYPE_CAPS} ${PhysX_LIBRARY_BASE_${LIBTYPE_CAPS}})
+
 
     ADD_PHYSX_LIBRARY(CharacterKinematic ${LIBTYPE})
     ADD_PHYSX_LIBRARY(Common ${LIBTYPE})
@@ -64,6 +66,12 @@ elseif (PhysX_CHECKED)
 else ()
     set(PhysX_LIBRARIES ${PhysX_LIBRARIES} optimized ${PhysX_LIBRARIES_RELEASE})
 endif()
+
+find_library(PhysX_LIBRARY_GPU
+        NAMES libPhysXGpu_64.so
+        PATHS ${PhysX_LIBRARY_DIR}/release)
+
+list(APPEND PhysX_LIBRARIES ${PhysX_LIBRARY_GPU})
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(PhysX  DEFAULT_MSG  PhysX_INCLUDE_DIR PxShared_INCLUDE_DIR PhysX_LIBRARIES)

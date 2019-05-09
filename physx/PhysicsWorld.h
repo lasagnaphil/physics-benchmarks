@@ -16,15 +16,13 @@
 
 #include "PhysXGLM.h"
 
-bool recordMemoryAllocations = true;
-
 using namespace physx;
 
 struct PhysicsWorld {
     static PxDefaultAllocator gAllocator;
     static PxDefaultErrorCallback gErrorCallback;
 
-    void init();
+    void init(uint32_t numThreads);
 
     bool advance(float dt);
 
@@ -51,6 +49,7 @@ struct PhysicsWorld {
     PxFoundation* foundation;
     PxPvd* pvd;
     PxPhysics* physics;
+    PxCudaContextManager* cudaContextManager;
     PxCooking* cooking;
     PxCpuDispatcher* cpuDispatcher;
     PxScene* scene;
