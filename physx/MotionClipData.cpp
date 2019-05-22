@@ -14,34 +14,34 @@
 
 std::unordered_map<std::string, glm::vec2> initBoneWidths() {
     std::unordered_map<std::string, glm::vec2> m;
-    m["LHipJoint"] = {1.0f, 1.0f};
-    m["LeftUpLeg"] = {3.0f, 3.0f};
-    m["LeftLeg"] = {3.0f, 3.0f};
-    m["LeftFoot"] = {3.0f, 3.0f};
-    m["LeftToeBase"] = {3.0f, 3.0f};
+    m["LHipJoint"] = {0.05f, 0.05f};
+    m["LeftUpLeg"] = {0.05f, 0.05f};
+    m["LeftLeg"] = {0.05f, 0.05f};
+    m["LeftFoot"] = {0.05f, 0.05f};
+    m["LeftToeBase"] = {0.05f, 0.05f};
     m["RHipJoint"] = {1.0f, 1.0f};
-    m["RightUpLeg"] = {3.0f, 3.0f};
-    m["RightLeg"] = {3.0f, 3.0f};
-    m["RightFoot"] = {3.0f, 3.0f};
-    m["RightToeBase"] = {3.0f, 3.0f};
-    m["LowerBack"] = {3.0f, 3.0f};
-    m["Spine"] = {3.0f, 3.0f};
-    m["Spine1"] = {3.0f, 3.0f};
-    m["Neck"] = {3.0f, 3.0f};
-    m["Neck1"] = {3.0f, 3.0f};
-    m["Head"] = {3.0f, 3.0f};
-    m["LeftShoulder"] = {3.0f, 3.0f};
-    m["LeftArm"] = {3.0f, 3.0f};
-    m["LeftForeArm"] = {3.0f, 3.0f};
-    m["LeftHand"] = {3.0f, 3.0f};
-    m["LeftFingerBase"] = {3.0f, 3.0f};
-    m["LeftHandIndex1"] = {3.0f, 3.0f};
-    m["RightShoulder"] = {3.0f, 3.0f};
-    m["RightArm"] = {3.0f, 3.0f};
-    m["RightForeArm"] = {3.0f, 3.0f};
-    m["RightHand"] = {3.0f, 3.0f};
-    m["RightFingerBase"] = {3.0f, 3.0f};
-    m["RThumb"] = {3.0f, 3.0f};
+    m["RightUpLeg"] = {0.05f, 0.05f};
+    m["RightLeg"] = {0.05f, 0.05f};
+    m["RightFoot"] = {0.05f, 0.05f};
+    m["RightToeBase"] = {0.05f, 0.05f};
+    m["LowerBack"] = {0.05f, 0.05f};
+    m["Spine"] = {0.05f, 0.05f};
+    m["Spine1"] = {0.05f, 0.05f};
+    m["Neck"] = {0.05f, 0.05f};
+    m["Neck1"] = {0.05f, 0.05f};
+    m["Head"] = {0.05f, 0.05f};
+    m["LeftShoulder"] = {0.05f, 0.05f};
+    m["LeftArm"] = {0.05f, 0.05f};
+    m["LeftForeArm"] = {0.05f, 0.05f};
+    m["LeftHand"] = {0.05f, 0.05f};
+    m["LeftFingerBase"] = {0.05f, 0.05f};
+    m["LeftHandIndex1"] = {0.05f, 0.05f};
+    m["RightShoulder"] = {0.05f, 0.05f};
+    m["RightArm"] = {0.05f, 0.05f};
+    m["RightForeArm"] = {0.05f, 0.05f};
+    m["RightHand"] = {0.05f, 0.05f};
+    m["RightFingerBase"] = {0.05f, 0.05f};
+    m["RThumb"] = {0.05f, 0.05f};
     return m;
 }
 
@@ -66,7 +66,7 @@ std::optional<MotionClipData::ChannelType> stringToChannelType(const std::string
     }
 }
 
-bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &data) {
+bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &data, float scale) {
     std::ifstream file(filename);
     std::string line;
     std::string keyword;
@@ -113,6 +113,7 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                     break;
                 }
                 newLine() >> keyword >> curJoint.offset.x >> curJoint.offset.y >> curJoint.offset.z; // OFFSET
+                curJoint.offset *= scale;
                 int channels;
                 std::string channelNames[6];
                 newLine() >> keyword >> channels
@@ -149,8 +150,8 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                     curJoint.boneWidthZ = widths.y;
                 }
                 else {
-                    curJoint.boneWidthX = 1.0f;
-                    curJoint.boneWidthZ = 1.0f;
+                    curJoint.boneWidthX = 0.05f;
+                    curJoint.boneWidthZ = 0.05f;
                 }
                 data.poseTree.allNodes.push_back(curJoint);
                 break;
@@ -169,6 +170,8 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                 }
                 newLine() >> keyword >> childJoint.offset.x >> childJoint.offset.y
                           >> childJoint.offset.z; // OFFSET
+                childJoint.offset *= scale;
+
                 int channels;
                 std::string channelNames[3];
                 newLine() >> keyword >> channels >> channelNames[0] >> channelNames[1] >> channelNames[2];
@@ -207,8 +210,8 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                     childJoint.boneWidthZ = widths.y;
                 }
                 else {
-                    childJoint.boneWidthX = 1.0f;
-                    childJoint.boneWidthZ = 1.0f;
+                    childJoint.boneWidthX = 0.05f;
+                    childJoint.boneWidthZ = 0.05f;
                 }
                 data.poseTree.allNodes.push_back(childJoint);
                 break;
@@ -227,6 +230,7 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                     break;
                 }
                 newLine() >> keyword >> childJoint.offset.x >> childJoint.offset.y >> childJoint.offset.z;
+                childJoint.offset *= scale;
                 data.poseTree.numNodes++;
                 // The most significant bit tells if the id is an end site or not
                 curJoint.childJoints.push_back(endSiteID + (1 << 31));
@@ -251,8 +255,8 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                     state = ParseState::Motion;
                 }
 
-                childJoint.boneWidthX = 1.0f;
-                childJoint.boneWidthZ = 1.0f;
+                childJoint.boneWidthX = 0.05f;
+                childJoint.boneWidthZ = 0.05f;
                 endSites.push_back(childJoint);
                 break;
             }
@@ -275,7 +279,7 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                             break;
                         }
                         if (c < 3) {
-                            poseState.rootPos[c] = num;
+                            poseState.rootPos[c] = num * scale;
                         }
                         else {
                             switch (channelTypeData[c]) {

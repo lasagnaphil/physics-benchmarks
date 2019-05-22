@@ -29,6 +29,7 @@ struct PoseEntity {
 
     physx::PxArticulationReducedCoordinate* articulation;
     std::vector<physx::PxArticulationLink*> articulationLinks;
+    std::unordered_map<physx::PxArticulationLink*, uint32_t> linkToNodeIdx;
 
     // used for rendering
     std::vector<glm::vec3> lineVertices;
@@ -50,7 +51,9 @@ struct PoseEntity {
 
     void initPhysX(PhysicsWorld& world);
 
-    void syncWithPhysX(PhysicsWorld& world);
+    void saveStateToPhysX(PhysicsWorld &world);
+
+    void loadStateFromPhysX(PhysicsWorld &world);
 
     void update(float dt);
 

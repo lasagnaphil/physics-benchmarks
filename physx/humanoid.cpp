@@ -12,14 +12,15 @@
 #include "MotionClipPlayer.h"
 #include "PoseEntity.h"
 #include "InputManager.h"
+#include "PhysXDebugRenderer.h"
 
 class MyApp : public App {
 public:
-    MyApp() : App(false) {}
+    MyApp() : App(false), pxDebugRenderer(&trackballCamera) {}
 
     void loadResources() override {
         Ref<Transform> cameraTransform = trackballCamera.transform;
-        cameraTransform->setPosition({40.0f, 40.0f, 0.0f});
+        cameraTransform->setPosition({5.0f, 5.0f, 0.0f});
         cameraTransform->rotate(M_PI/4, {0.0f, 0.0f, 1.0f});
 
         world.init(2);
@@ -37,7 +38,7 @@ public:
         groundMat->texDiffuse = planeTexture;
         groundMat->texSpecular = {};
 
-        bool success = MotionClipData::loadFromFile("gengine/resources/cmu_07_02_1.bvh", poseData);
+        bool success = MotionClipData::loadFromFile("gengine/resources/cmu_07_02_1.bvh", poseData, 0.01f);
         if (!success) {
             std::cerr << "Failed to load pose data" << std::endl;
             exit(EXIT_FAILURE);
@@ -45,7 +46,7 @@ public:
         poseData.print();
 
         Ref<Transform> poseTransform = Resources::make<Transform>();
-        poseTransform->setScale({0.1f, 0.1f, 0.1f});
+        poseTransform->setScale({1.f, 1.f, 1.f});
         Transform::addChildToParent(poseTransform, rootTransform);
 
         motionClipPlayer = MotionClipPlayer(&poseData);
@@ -56,6 +57,8 @@ public:
                 poseTransform, &trackballCamera);
         poseEntity.init();
         poseEntity.initPhysX(world);
+
+        pxDebugRenderer.init(world);
     }
 
     void processInput(SDL_Event &event) override {
@@ -85,8 +88,13 @@ public:
             if (advanced) {
                 world.fetchResults();
             }
-            poseEntity.syncWithPhysX(world);
+            poseEntity.loadStateFromPhysX(world);
         }
+        if (inputMgr->isKeyEntered(SDL_SCANCODE_RETURN)) {
+            poseEntity.saveStateToPhysX(world);
+            poseEntity.loadStateFromPhysX(world);
+        }
+        // poseEntity.loadStateFromPhysX(world);
     }
 
     void render() override {
@@ -99,7 +107,9 @@ public:
         gizmosRenderer.render();
 
         motionClipPlayer.drawImGui();
-        // poseEntity.drawImGui();
+        poseEntity.drawImGui();
+
+        pxDebugRenderer.render(world);
     }
 
     void release() override {
@@ -117,6 +127,8 @@ private:
     PoseEntity poseEntity;
 
     bool enablePhysics = false;
+
+    PhysXDebugRenderer pxDebugRenderer;
 };
 
 int main(int argc, char** argv) {

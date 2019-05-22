@@ -18,6 +18,30 @@
 
 using namespace physx;
 
+glm::mat4 rotMatrixBetweenTwoVectors(const glm::vec3& a, const glm::vec3& b) {
+    glm::vec3 v = glm::cross(a, b);
+    float s2 = glm::dot(v, v);
+    if (s2 < glm::epsilon<float>()) {
+        return glm::mat4(1.0f);
+    }
+    else {
+        // Rodrigue's formula
+        float c = glm::dot(a, b);
+        glm::mat3 vhat;
+        vhat[0][0] = vhat[1][1] = vhat[2][2] = 0;
+        vhat[2][1] = v[0]; vhat[1][2] = -v[0];
+        vhat[0][2] = v[1]; vhat[2][0] = -v[1];
+        vhat[1][0] = v[2]; vhat[0][1] = -v[2];
+        return glm::mat4(glm::mat3(1.0f) + vhat + vhat*vhat*(1 - c)/(s2));
+    }
+}
+
+glm::quat quatBetweenTwoVectors(const glm::vec3& a, const glm::vec3& b) {
+    float w = glm::dot(a, b) + glm::sqrt(glm::length2(a) * glm::length2(b));
+    glm::vec3 xyz = glm::cross(a, b);
+    return glm::normalize(glm::quat(w, xyz));
+}
+
 void PoseEntity::init() {
     lineVertices.resize(poseTree.numNodes);
     initialBoneTransforms.resize(poseTree.numNodes - 1);
@@ -37,7 +61,7 @@ void PoseEntity::initPhysX(PhysicsWorld& world) {
     articulation = world.physics->createArticulationReducedCoordinate();
     articulation->setSolverIterationCounts(32);
 
-    articulationLinks.resize(poseTree.numJoints);
+    articulationLinks.resize(poseTree.numNodes);
 
     // Create the three branches of the human articulation
     uint32_t lowerBackNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "LowerBack");
@@ -46,10 +70,20 @@ void PoseEntity::initPhysX(PhysicsWorld& world) {
 
     // Add each hip to the bottom of the lower back node
     uint32_t spineJointIdx = poseTree[lowerBackNodeIdx].childJoints[0];
-    addPhysXBodyRecursive(world, lowerBackNodeIdx, nullptr, PxTransform(0.0f, 10.0f, 0.0f));
+    addPhysXBodyRecursive(world, lowerBackNodeIdx, nullptr, PxTransform(0.0f, 0.0f, 0.0f));
     addPhysXBodyRecursive(world, leftHipJointNodeIdx, articulationLinks[spineJointIdx], PxTransform(0.0f, 0.0f, 0.0f));
     addPhysXBodyRecursive(world, rightHipJointNodeIdx, articulationLinks[spineJointIdx], PxTransform(0.0f, 0.0f, 0.0f));
 
+    for (auto link : articulationLinks) {
+        if (link) {
+            link->setActorFlag(PxActorFlag::eVISUALIZATION, true);
+            std::vector<PxShape*> shapes(link->getNbShapes());
+            link->getShapes(shapes.data(), link->getNbShapes());
+            for (auto shape : shapes) {
+                shape->setFlag(PxShapeFlag::eVISUALIZATION, true);
+            }
+        }
+    }
     world.scene->addArticulation(*articulation);
 }
 
@@ -60,30 +94,66 @@ void PoseEntity::addPhysXBodyRecursive(PhysicsWorld &world, uint32_t parentIdx,
     if (!parentJoint.isEndSite) {
         for (auto childIdx : parentJoint.childJoints) {
             auto& childJoint = poseTree[childIdx];
+
             PxArticulationLink* link = nullptr;
+            PxArticulationJointReducedCoordinate* pxJoint = nullptr;
             PxTransform childTransform = parentTransform;
+
             if (glm::length(childJoint.offset) != 0.0f) {
                 link = articulation->createLink(parent, parentTransform);
+                link->setActorFlag(PxActorFlag::eVISUALIZATION, true);
                 auto geometry = PxBoxGeometry(parentJoint.boneWidthX/2, glm::length(childJoint.offset)/2, parentJoint.boneWidthZ/2);
-                PxRigidActorExt::createExclusiveShape(*link, geometry, *world.material);
+                PxShape* shape = PxRigidActorExt::createExclusiveShape(*link, geometry, *world.material);
+                shape->setFlag(PxShapeFlag::eVISUALIZATION, true);
                 PxRigidBodyExt::updateMassAndInertia(*link, 1.0f);
 
-                childTransform = PxTransform(parentTransform.p + GLMToPx(childJoint.offset), parentTransform.q);
-                auto pxJoint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
+                PxVec3 geometryOffset = PxVec3(0, glm::length(childJoint.offset), 0);
+                PxQuat geometryRot = GLMToPx(quatBetweenTwoVectors(glm::normalize(childJoint.offset), {0, 1, 0}));
+                childTransform = PxTransform(parentTransform.p + geometryOffset, geometryRot);
+                pxJoint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
                 if (pxJoint) {
                     pxJoint->setJointType(PxArticulationJointType::eSPHERICAL);
-                    // pxJoint->setParentPose(parentTransform);
-                    // pxJoint->setChildPose(childTransform);
+                    pxJoint->setParentPose(parentTransform);
+                    pxJoint->setChildPose(childTransform);
                 }
             }
 
             articulationLinks[childIdx] = link;
+            if (pxJoint) {
+                linkToNodeIdx[link] = childIdx;
+            }
             addPhysXBodyRecursive(world, childIdx, link? link : parent, childTransform);
         }
     }
 }
 
-void PoseEntity::syncWithPhysX(PhysicsWorld &world) {
+void PoseEntity::saveStateToPhysX(PhysicsWorld &world) {
+    uint32_t lowerBackNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "LowerBack");
+    uint32_t spineNodeIdx = poseTree.getChildIdx(poseTree[lowerBackNodeIdx], "Spine");
+
+    auto spineLink = articulationLinks[spineNodeIdx];
+    articulation->teleportRootLink(PxTransform(GLMToPx(poseState.rootPos), GLMToPx(poseState.jointRot[0])), true);
+
+    std::vector<PxArticulationLink*> linkStack;
+    {
+        // insert child links to stack
+        linkStack.resize(linkStack.size() + spineLink->getNbChildren());
+        spineLink->getChildren(linkStack.data() + linkStack.size() - spineLink->getNbChildren(), spineLink->getNbChildren());
+    }
+    while (!linkStack.empty()) {
+        auto link = linkStack[linkStack.size() - 1];
+        linkStack.pop_back();
+        uint32_t idx = linkToNodeIdx[link];
+        auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
+        joint->setChildPose(PxTransform(link->getGlobalPose().p, GLMToPx(poseState.jointRot[idx])));
+
+        // insert child links to stack
+        linkStack.resize(linkStack.size() + link->getNbChildren());
+        link->getChildren(linkStack.data() + linkStack.size() - link->getNbChildren(), link->getNbChildren());
+    }
+}
+
+void PoseEntity::loadStateFromPhysX(PhysicsWorld &world) {
     uint32_t lowerBackNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "LowerBack");
     uint32_t spineNodeIdx = poseTree.getChildIdx(poseTree[lowerBackNodeIdx], "Spine");
     auto link = articulationLinks[spineNodeIdx];
@@ -104,10 +174,13 @@ void PoseEntity::syncWithPhysX(PhysicsWorld &world) {
             poseState.jointRot[idx] = PxToGLM(link->getGlobalPose().q);
         }
         else {
-            poseState.jointRot[idx] = poseState.jointRot[poseTree[idx].parent];
+            poseState.jointRot[idx] = glm::identity<glm::quat>();
+            // poseState.jointRot[idx] = poseState.jointRot[poseTree[idx].parent];
         }
         for (int childIdx : poseTree[idx].childJoints) {
-            indices.push(childIdx);
+            if (!poseTree[childIdx].isEndSite) {
+                indices.push(childIdx);
+            }
         }
     }
 
@@ -133,29 +206,11 @@ void PoseEntity::queueGizmosRender(GizmosRenderer &renderer) {
 
 void PoseEntity::calculateInitialBoneTransforms() {
     for (int i = 1; i < poseTree.numNodes; i++) {
-        glm::mat4 initialRotation, initialScale, initialTrans;
-
         PoseTreeNode& node = poseTree.allNodes[i];
-        glm::vec3 offset = node.offset;
-        glm::vec3 a = glm::vec3 {0, 1, 0};
-        glm::vec3 b = glm::normalize(offset);
-        glm::vec3 v = glm::cross(b, a);
-        float s2 = glm::dot(v, v);
-        if (s2 < glm::epsilon<float>()) {
-            initialRotation = glm::mat4(1.0f);
-        }
-        else {
-            // Rodrigue's formula
-            float c = glm::dot(a, b);
-            glm::mat3 vhat;
-            vhat[0][0] = vhat[1][1] = vhat[2][2] = 0;
-            vhat[2][1] = v[0]; vhat[1][2] = -v[0];
-            vhat[0][2] = v[1]; vhat[2][0] = -v[1];
-            vhat[1][0] = v[2]; vhat[0][1] = -v[2];
-            initialRotation = glm::mat3(1.0f) + vhat + vhat*vhat*(1 - c)/(s2);
-        }
-        initialScale = glm::scale(glm::vec3 {node.boneWidthX, glm::length(offset), node.boneWidthZ});
-        initialTrans = glm::translate(glm::vec3{0.0f, 0.5f, 0.0f});
+
+        glm::mat4 initialRotation = rotMatrixBetweenTwoVectors(glm::normalize(node.offset), {0, 1, 0});
+        glm::mat4 initialScale = glm::scale(glm::vec3 {node.boneWidthX, glm::length(node.offset), node.boneWidthZ});
+        glm::mat4 initialTrans = glm::translate(glm::vec3{0.0f, 0.5f, 0.0f});
 
         initialBoneTransforms[i - 1] = glm::mat4(initialRotation) * initialScale * initialTrans;
     }

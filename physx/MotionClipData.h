@@ -110,7 +110,7 @@ struct MotionClipData {
 
     float frameTime;
 
-    static bool loadFromFile(const std::string &filename, MotionClipData &data);
+    static bool loadFromFile(const std::string &filename, MotionClipData &data, float scale = 1.0f);
 
     void print() const;
 

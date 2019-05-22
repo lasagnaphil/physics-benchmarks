@@ -17,8 +17,8 @@ void PhysicsWorld::init(uint32_t numThreads = 16) {
     }
 
     PxTolerancesScale scale;
-    scale.length = 100;
-    scale.speed = 981;
+    scale.length = 1.00;
+    scale.speed = 9.81;
 
     pvd = PxCreatePvd(*foundation);
     PxPvdTransport* transport = PxDefaultPvdSocketTransportCreate("127.0.0.1", 5425, 10);
@@ -47,12 +47,13 @@ void PhysicsWorld::init(uint32_t numThreads = 16) {
     sceneDesc.filterShader = PxDefaultSimulationFilterShader;
 
     // enable CUDA
+    /*
     sceneDesc.cudaContextManager = cudaContextManager;
     sceneDesc.flags |= PxSceneFlag::eENABLE_GPU_DYNAMICS;
     sceneDesc.broadPhaseType = PxBroadPhaseType::eGPU;
+     */
 
     scene = physics->createScene(sceneDesc);
-    scene->setVisualizationParameter(PxVisualizationParameter::eSCALE, 1.0f);
 
     PxPvdSceneClient* pvdClient = scene->getScenePvdClient();
     if (pvdClient) {
