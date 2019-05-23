@@ -8,6 +8,8 @@
 #include "MotionClipData.h"
 
 #include <stack>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <glad/glad.h>
 
@@ -29,6 +31,7 @@ struct PoseEntity {
 
     physx::PxArticulationReducedCoordinate* articulation;
     std::vector<physx::PxArticulationLink*> articulationLinks;
+    std::unordered_set<uint32_t> secondaryJoints;
     std::unordered_map<physx::PxArticulationLink*, uint32_t> linkToNodeIdx;
 
     // used for rendering
@@ -51,6 +54,8 @@ struct PoseEntity {
 
     void initPhysX(PhysicsWorld& world);
 
+    void initArticulationFromCMU(PhysicsWorld& world);
+
     void saveStateToPhysX(PhysicsWorld &world);
 
     void loadStateFromPhysX(PhysicsWorld &world);
@@ -67,8 +72,8 @@ struct PoseEntity {
 
 private:
 
-    void addPhysXBodyRecursive(PhysicsWorld& world, uint32_t parentIdx,
-            physx::PxArticulationLink* parent, const physx::PxTransform& parentTransform);
+    std::tuple<PxArticulationLink*, PxTransform> createArticulationLink(
+            PhysicsWorld& world, const std::string& nodeName, PxArticulationLink* parentLink, const PxTransform& nodeTransform);
 
     void calculateInitialBoneTransforms();
 

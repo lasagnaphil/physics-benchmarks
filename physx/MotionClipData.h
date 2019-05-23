@@ -41,6 +41,34 @@ struct PoseTree {
     const PoseTreeNode& operator[](uint32_t idx) const { return allNodes[idx]; }
     PoseTreeNode& operator[](uint32_t idx) { return allNodes[idx]; }
 
+    const PoseTreeNode* operator[](const std::string& name) const {
+        auto it = std::find_if(allNodes.begin(), allNodes.end(), [&](const PoseTreeNode& node) {
+            return node.name == name;
+        });
+        if (it == allNodes.end()) {
+            return nullptr;
+        }
+        else {
+            return it.base();
+        }
+    }
+
+    PoseTreeNode* operator[](const std::string& name) {
+        return const_cast<PoseTreeNode*>(const_cast<const PoseTree*>(this)->operator[](name));
+    }
+
+    uint32_t findIdx(const std::string& name) {
+        auto it = std::find_if(allNodes.begin(), allNodes.end(), [&](const PoseTreeNode& node) {
+            return node.name == name;
+        });
+        if (it == allNodes.end()) {
+            return (uint32_t) -1;
+        }
+        else {
+            return it - allNodes.begin();
+        }
+    }
+
     const PoseTreeNode& getRootNode() const {
         return allNodes[0];
     }
@@ -51,6 +79,15 @@ struct PoseTree {
 
     uint32_t getChildIdx(const PoseTreeNode& node, const std::string& name) {
         for (uint32_t childIdx : node.childJoints) {
+            if (allNodes[childIdx].name == name) {
+                return childIdx;
+            }
+        }
+        return (uint32_t)-1;
+    }
+
+    uint32_t getChildIdx(const uint32_t nodeIdx, const std::string& name) {
+        for (uint32_t childIdx : allNodes[nodeIdx].childJoints) {
             if (allNodes[childIdx].name == name) {
                 return childIdx;
             }

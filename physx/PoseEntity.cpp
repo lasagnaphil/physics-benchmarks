@@ -61,102 +61,133 @@ void PoseEntity::initPhysX(PhysicsWorld& world) {
     articulation = world.physics->createArticulationReducedCoordinate();
     articulation->setSolverIterationCounts(32);
 
-    articulationLinks.resize(poseTree.numNodes);
+    articulationLinks.resize(poseTree.numNodes, nullptr);
 
-    // Create the three branches of the human articulation
-    uint32_t lowerBackNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "LowerBack");
-    uint32_t leftHipJointNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "LHipJoint");
-    uint32_t rightHipJointNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "RHipJoint");
-
-    // Add each hip to the bottom of the lower back node
-    uint32_t spineJointIdx = poseTree[lowerBackNodeIdx].childJoints[0];
-    addPhysXBodyRecursive(world, lowerBackNodeIdx, nullptr, PxTransform(0.0f, 0.0f, 0.0f));
-    addPhysXBodyRecursive(world, leftHipJointNodeIdx, articulationLinks[spineJointIdx], PxTransform(0.0f, 0.0f, 0.0f));
-    addPhysXBodyRecursive(world, rightHipJointNodeIdx, articulationLinks[spineJointIdx], PxTransform(0.0f, 0.0f, 0.0f));
+    initArticulationFromCMU(world);
 
     for (auto link : articulationLinks) {
         if (link) {
             link->setActorFlag(PxActorFlag::eVISUALIZATION, true);
-            std::vector<PxShape*> shapes(link->getNbShapes());
-            link->getShapes(shapes.data(), link->getNbShapes());
-            for (auto shape : shapes) {
-                shape->setFlag(PxShapeFlag::eVISUALIZATION, true);
-            }
+            PxShape* shape = nullptr;
+            link->getShapes(&shape, 1);
+            shape->setFlag(PxShapeFlag::eVISUALIZATION, true);
         }
     }
-    world.scene->addArticulation(*articulation);
+
+    PxAggregate* aggregate = world.physics->createAggregate(articulation->getNbLinks(), false);
+    aggregate->addArticulation(*articulation);
+    world.scene->addAggregate(*aggregate);
 }
 
-void PoseEntity::addPhysXBodyRecursive(PhysicsWorld &world, uint32_t parentIdx,
-        PxArticulationLink* parent, const PxTransform& parentTransform) {
+std::tuple<PxArticulationLink*, PxTransform> PoseEntity::createArticulationLink(
+        PhysicsWorld& world, const std::string& nodeName,  PxArticulationLink* parentLink, const PxTransform& nodeTransform)
+{
+    uint32_t nodeIdx = poseTree.findIdx(nodeName);
+    PoseTreeNode& node = poseTree[nodeIdx];
+    PxVec3 geomOffset = PxVec3(0, glm::length(node.offset), 0);
+    PxQuat geomRot = GLMToPx(quatBetweenTwoVectors(glm::normalize(node.offset), {0, 1, 0}));
+    PxTransform geomTransform = PxTransform(geomOffset, geomRot);
 
-    PoseTreeNode& parentJoint = poseTree[parentIdx];
-    if (!parentJoint.isEndSite) {
-        for (auto childIdx : parentJoint.childJoints) {
-            auto& childJoint = poseTree[childIdx];
+    PxArticulationLink* link = articulation->createLink(parentLink, nodeTransform);
+    auto geometry = PxBoxGeometry(node.boneWidthX / 2, glm::length(node.offset) / 2, node.boneWidthZ / 2);
+    PxRigidActorExt::createExclusiveShape(*link, geometry, *world.material);
+    PxRigidBodyExt::updateMassAndInertia(*link, 1.0f);
+    articulationLinks[nodeIdx] = link;
 
-            PxArticulationLink* link = nullptr;
-            PxArticulationJointReducedCoordinate* pxJoint = nullptr;
-            PxTransform childTransform = parentTransform;
-
-            if (glm::length(childJoint.offset) != 0.0f) {
-                link = articulation->createLink(parent, parentTransform);
-                link->setActorFlag(PxActorFlag::eVISUALIZATION, true);
-                auto geometry = PxBoxGeometry(parentJoint.boneWidthX/2, glm::length(childJoint.offset)/2, parentJoint.boneWidthZ/2);
-                PxShape* shape = PxRigidActorExt::createExclusiveShape(*link, geometry, *world.material);
-                shape->setFlag(PxShapeFlag::eVISUALIZATION, true);
-                PxRigidBodyExt::updateMassAndInertia(*link, 1.0f);
-
-                PxVec3 geometryOffset = PxVec3(0, glm::length(childJoint.offset), 0);
-                PxQuat geometryRot = GLMToPx(quatBetweenTwoVectors(glm::normalize(childJoint.offset), {0, 1, 0}));
-                childTransform = PxTransform(parentTransform.p + geometryOffset, geometryRot);
-                pxJoint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
-                if (pxJoint) {
-                    pxJoint->setJointType(PxArticulationJointType::eSPHERICAL);
-                    pxJoint->setParentPose(parentTransform);
-                    pxJoint->setChildPose(childTransform);
-                }
-            }
-
-            articulationLinks[childIdx] = link;
-            if (pxJoint) {
-                linkToNodeIdx[link] = childIdx;
-            }
-            addPhysXBodyRecursive(world, childIdx, link? link : parent, childTransform);
+    if (parentLink) {
+        auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
+        joint->setJointType(PxArticulationJointType::eSPHERICAL);
+        if (node.offset.y >= 0.0f) {
+            joint->setParentPose(PxTransform(nodeTransform.p / 2, nodeTransform.q));
+            joint->setChildPose(PxTransform(-geomTransform.p / 2, geomTransform.q));
         }
+        else {
+            joint->setParentPose(PxTransform(-nodeTransform.p / 2, nodeTransform.q));
+            joint->setChildPose(PxTransform(geomTransform.p / 2, geomTransform.q));
+        }
+        joint->setMotion(PxArticulationAxis::eTWIST, PxArticulationMotion::eFREE);
+        joint->setMotion(PxArticulationAxis::eSWING1, PxArticulationMotion::eFREE);
+        joint->setMotion(PxArticulationAxis::eSWING2, PxArticulationMotion::eFREE);
     }
+
+    return {link, geomTransform};
+}
+
+void PoseEntity::initArticulationFromCMU(PhysicsWorld& world) {
+    auto& hip = *poseTree["Hips"];
+
+    PxTransform rootTransform = PxTransform(PxVec3(0.0f, 2.0f, 0.0f) + GLMToPx(hip.offset));
+    auto [spineLink, spineTransform] = createArticulationLink(world, "Spine", nullptr, rootTransform);
+    auto [spine1Link, spine1Transform] = createArticulationLink(world, "Spine1", spineLink, spineTransform);
+    auto [neck1Link, neck1Transform] = createArticulationLink(world, "Neck1", spine1Link, spine1Transform);
+    auto [headLink, headTransform] = createArticulationLink(world, "Head", neck1Link, neck1Transform);
+
+    auto [leftArmLink, leftArmTransform] = createArticulationLink(world, "LeftArm", spine1Link, spine1Transform);
+    auto [leftForeArmLink, leftForeArmTransform] = createArticulationLink(world, "LeftForeArm", leftArmLink, leftArmTransform);
+    auto [leftHandLink, leftHandTransform] = createArticulationLink(world, "LeftHand", leftForeArmLink, leftForeArmTransform);
+    auto [leftHandIndex1Link, leftHandIndex1Transform] = createArticulationLink(world, "LeftHandIndex1", leftHandLink, leftHandTransform);
+
+    auto [rightArmLink, rightArmTransform] = createArticulationLink(world, "RightArm", spine1Link, spine1Transform);
+    auto [rightForeArmLink, rightForeArmTransform] = createArticulationLink(world, "RightForeArm", rightArmLink, rightArmTransform);
+    auto [rightHandLink, rightHandTransform] = createArticulationLink(world, "RightHand", rightForeArmLink, rightForeArmTransform);
+    auto [rightHandIndex1Link, rightHandIndex1Transform] = createArticulationLink(world, "RightHandIndex1", rightHandLink, rightHandTransform);
+
+    auto [leftUpLegLink, leftUpLegTransform] = createArticulationLink(world, "LeftUpLeg", spineLink, spineTransform);
+    auto [leftLegLink, leftLegTransform] = createArticulationLink(world, "LeftLeg", leftUpLegLink, leftUpLegTransform);
+    auto [leftFootLink, leftFootTransform] = createArticulationLink(world, "LeftFoot", leftLegLink, leftLegTransform);
+    auto [leftToeBaseLink, leftToeBaseTransform] = createArticulationLink(world, "LeftToeBase", leftFootLink, leftFootTransform);
+
+    auto [rightUpLegLink, rightUpLegTransform] = createArticulationLink(world, "RightUpLeg", spineLink, spineTransform);
+    auto [rightLegLink, rightLegTransform] = createArticulationLink(world, "RightLeg", rightUpLegLink, rightUpLegTransform);
+    auto [rightFootLink, rightFootTransform] = createArticulationLink(world, "RightFoot", rightLegLink, rightLegTransform);
+    auto [rightToeBaseLink, rightToeBaseTransform] = createArticulationLink(world, "RightToeBase", rightFootLink, rightFootTransform);
+
+    auto addSecondaryJoint = [&](const std::string& nodeName, PxArticulationLink* link) {
+        uint32_t idx = poseTree.findIdx(nodeName);
+        articulationLinks[idx] = link;
+        secondaryJoints.insert(idx);
+    };
+
+    addSecondaryJoint("LowerBack", spineLink);
+    addSecondaryJoint("LHipJoint", leftUpLegLink);
+    addSecondaryJoint("RHipJoint", rightUpLegLink);
+    addSecondaryJoint("Neck", neck1Link);
+    addSecondaryJoint("LeftShoulder", leftArmLink);
+    addSecondaryJoint("RightShoulder", rightArmLink);
+    addSecondaryJoint("LeftFingerBase", leftHandIndex1Link);
+    addSecondaryJoint("RightFingerBase", rightHandIndex1Link);
+
+    // articulation->setArticulationFlag(PxArticulationFlag::eFIX_BASE, true);
 }
 
 void PoseEntity::saveStateToPhysX(PhysicsWorld &world) {
-    uint32_t lowerBackNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "LowerBack");
-    uint32_t spineNodeIdx = poseTree.getChildIdx(poseTree[lowerBackNodeIdx], "Spine");
-
-    auto spineLink = articulationLinks[spineNodeIdx];
     articulation->teleportRootLink(PxTransform(GLMToPx(poseState.rootPos), GLMToPx(poseState.jointRot[0])), true);
 
-    std::vector<PxArticulationLink*> linkStack;
-    {
-        // insert child links to stack
-        linkStack.resize(linkStack.size() + spineLink->getNbChildren());
-        spineLink->getChildren(linkStack.data() + linkStack.size() - spineLink->getNbChildren(), spineLink->getNbChildren());
+    for (uint32_t idx = 1; idx < articulationLinks.size(); idx++) {
+        auto link = articulationLinks[idx];
+        if (link && secondaryJoints.count(idx) == 1) {
+            auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
+            if (joint) {
+                joint->setParentPose(PxTransform(
+                        joint->getChildPose().p, GLMToPx(poseState.jointRot[idx])));
+            }
+        }
     }
-    while (!linkStack.empty()) {
-        auto link = linkStack[linkStack.size() - 1];
-        linkStack.pop_back();
-        uint32_t idx = linkToNodeIdx[link];
-        auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
-        joint->setChildPose(PxTransform(link->getGlobalPose().p, GLMToPx(poseState.jointRot[idx])));
 
-        // insert child links to stack
-        linkStack.resize(linkStack.size() + link->getNbChildren());
-        link->getChildren(linkStack.data() + linkStack.size() - link->getNbChildren(), link->getNbChildren());
+    for (uint32_t idx = 1; idx < articulationLinks.size(); idx++) {
+        auto link = articulationLinks[idx];
+        if (link && secondaryJoints.count(idx) == 0) {
+            auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
+            if (joint) {
+                joint->setChildPose(PxTransform(
+                        joint->getChildPose().p, GLMToPx(poseState.jointRot[idx]) * joint->getChildPose().q));
+            }
+        }
     }
 }
 
 void PoseEntity::loadStateFromPhysX(PhysicsWorld &world) {
-    uint32_t lowerBackNodeIdx = poseTree.getChildIdx(poseTree.getRootNode(), "LowerBack");
-    uint32_t spineNodeIdx = poseTree.getChildIdx(poseTree[lowerBackNodeIdx], "Spine");
-    auto link = articulationLinks[spineNodeIdx];
+    auto link = articulationLinks[poseTree.findIdx("Spine")];
     auto pose = link->getGlobalPose();
     poseState.rootPos = PxToGLM(pose.p);
     poseState.jointRot[0] = PxToGLM(pose.q);

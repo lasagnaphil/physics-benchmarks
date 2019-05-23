@@ -88,18 +88,21 @@ public:
             if (advanced) {
                 world.fetchResults();
             }
-            poseEntity.loadStateFromPhysX(world);
         }
         if (inputMgr->isKeyEntered(SDL_SCANCODE_RETURN)) {
             poseEntity.saveStateToPhysX(world);
-            poseEntity.loadStateFromPhysX(world);
+            bool advanced = world.advance(dt);
+            if (advanced) {
+                world.fetchResults();
+            }
+            // poseEntity.loadStateFromPhysX(world);
         }
         // poseEntity.loadStateFromPhysX(world);
     }
 
     void render() override {
         phongRenderer.queueRender({groundMesh, groundMat, rootTransform->getWorldTransform()});
-        poseEntity.queueBoneRender(phongRenderer);
+        // poseEntity.queueBoneRender(phongRenderer);
         phongRenderer.render();
 
         poseEntity.queueGizmosRender(gizmosRenderer);
