@@ -57,8 +57,11 @@ public:
                 poseTransform, &trackballCamera);
         poseEntity.init();
         poseEntity.initPhysX(world);
+        poseEntity.poseState = motionClipPlayer.getPoseState();
 
         pxDebugRenderer.init(world);
+
+        poseEntity.saveStateToPhysX(world);
     }
 
     void processInput(SDL_Event &event) override {
@@ -79,8 +82,10 @@ public:
         motionClipPlayer.update(dt);
         if (motionClipPlayer.shouldUpdate) {
             poseEntity.poseState = motionClipPlayer.getPoseState();
-            poseEntity.updateJointPositions();
             motionClipPlayer.shouldUpdate = false;
+
+            poseEntity.saveStateToPhysX(world);
+            poseEntity.updateJointPositions();
         }
 
         if (enablePhysics) {
@@ -88,21 +93,24 @@ public:
             if (advanced) {
                 world.fetchResults();
             }
+            // poseEntity.loadStateFromPhysX(world);
+            poseEntity.updateJointPositions();
         }
+
         if (inputMgr->isKeyEntered(SDL_SCANCODE_RETURN)) {
-            poseEntity.saveStateToPhysX(world);
             bool advanced = world.advance(dt);
             if (advanced) {
                 world.fetchResults();
             }
             // poseEntity.loadStateFromPhysX(world);
+            poseEntity.updateJointPositions();
         }
         // poseEntity.loadStateFromPhysX(world);
     }
 
     void render() override {
         phongRenderer.queueRender({groundMesh, groundMat, rootTransform->getWorldTransform()});
-        // poseEntity.queueBoneRender(phongRenderer);
+        poseEntity.queueBoneRender(phongRenderer);
         phongRenderer.render();
 
         poseEntity.queueGizmosRender(gizmosRenderer);

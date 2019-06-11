@@ -30,8 +30,8 @@ struct PoseEntity {
     PoseState poseState;
 
     physx::PxArticulationReducedCoordinate* articulation;
-    std::vector<physx::PxArticulationLink*> articulationLinks;
     std::unordered_set<uint32_t> secondaryJoints;
+    std::unordered_map<uint32_t, physx::PxArticulationLink*> nodeIdxToLink;
     std::unordered_map<physx::PxArticulationLink*, uint32_t> linkToNodeIdx;
 
     // used for rendering
@@ -55,6 +55,8 @@ struct PoseEntity {
     void initPhysX(PhysicsWorld& world);
 
     void initArticulationFromCMU(PhysicsWorld& world);
+
+    void resetPhysX(PhysicsWorld &world);
 
     void saveStateToPhysX(PhysicsWorld &world);
 

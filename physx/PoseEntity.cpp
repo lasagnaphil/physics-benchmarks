@@ -13,6 +13,7 @@
 #include <imgui.h>
 #include <glm/gtx/transform.hpp>
 #include <glm/gtx/norm.hpp>
+#include <glm/gtx/euler_angles.hpp>
 
 #include <queue>
 
@@ -42,6 +43,42 @@ glm::quat quatBetweenTwoVectors(const glm::vec3& a, const glm::vec3& b) {
     return glm::normalize(glm::quat(w, xyz));
 }
 
+glm::quat eulerToQuatXYZ(glm::vec3 eulerAngleXYZ) {
+    glm::vec3 c = glm::cos(eulerAngleXYZ * 0.5f);
+    glm::vec3 s = glm::sin(eulerAngleXYZ * 0.5f);
+
+    glm::quat q;
+    q.w = c.x * c.y * c.z + s.x * s.y * s.z;
+    q.x = s.x * c.y * c.z - c.x * s.y * s.z;
+    q.y = c.x * s.y * c.z + s.x * c.y * s.z;
+    q.z = c.x * c.y * s.z - s.x * s.y * c.z;
+    return q;
+}
+
+// Reference: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+glm::vec3 quatToEulerXYZ(const glm::quat& q) {
+    glm::vec3 r;
+
+    // roll (x-axis rotation)
+    float sinr_cosp = 2.0f * (q.w * q.x + q.y * q.z);
+    float cosr_cosp = 1.0f - 2.0f * (q.x * q.x + q.y * q.y);
+    r.x = atan2(sinr_cosp, cosr_cosp);
+
+    // pitch (y-axis rotation)
+    float sinp = 2.0f * (q.w * q.y - q.z * q.x);
+    if (fabs(sinp) >= 1)
+        r.y = copysign(M_PI / 2, sinp); // use 90 degrees if out of range
+    else
+        r.y = asin(sinp);
+
+    // yaw (z-axis rotation)
+    float siny_cosp = 2.0f * (q.w * q.z + q.x * q.y);
+    float cosy_cosp = 1.0f - 2.0f * (q.y * q.y + q.z * q.z);
+    r.z = atan2(siny_cosp, cosy_cosp);
+
+    return r;
+}
+
 void PoseEntity::init() {
     lineVertices.resize(poseTree.numNodes);
     initialBoneTransforms.resize(poseTree.numNodes - 1);
@@ -61,11 +98,12 @@ void PoseEntity::initPhysX(PhysicsWorld& world) {
     articulation = world.physics->createArticulationReducedCoordinate();
     articulation->setSolverIterationCounts(32);
 
-    articulationLinks.resize(poseTree.numNodes, nullptr);
-
     initArticulationFromCMU(world);
 
-    for (auto link : articulationLinks) {
+    std::vector<PxArticulationLink*> links(articulation->getNbLinks());
+    articulation->getLinks(links.data(), links.size());
+
+    for (auto link : links) {
         if (link) {
             link->setActorFlag(PxActorFlag::eVISUALIZATION, true);
             PxShape* shape = nullptr;
@@ -92,19 +130,15 @@ std::tuple<PxArticulationLink*, PxTransform> PoseEntity::createArticulationLink(
     auto geometry = PxBoxGeometry(node.boneWidthX / 2, glm::length(node.offset) / 2, node.boneWidthZ / 2);
     PxRigidActorExt::createExclusiveShape(*link, geometry, *world.material);
     PxRigidBodyExt::updateMassAndInertia(*link, 1.0f);
-    articulationLinks[nodeIdx] = link;
+    PxU32 linkIdx = link->getLinkIndex();
+    nodeIdxToLink[nodeIdx] = link;
+    linkToNodeIdx[link] = nodeIdx;
 
     if (parentLink) {
         auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
         joint->setJointType(PxArticulationJointType::eSPHERICAL);
-        if (node.offset.y >= 0.0f) {
-            joint->setParentPose(PxTransform(nodeTransform.p / 2, nodeTransform.q));
-            joint->setChildPose(PxTransform(-geomTransform.p / 2, geomTransform.q));
-        }
-        else {
-            joint->setParentPose(PxTransform(-nodeTransform.p / 2, nodeTransform.q));
-            joint->setChildPose(PxTransform(geomTransform.p / 2, geomTransform.q));
-        }
+        joint->setParentPose(PxTransform(nodeTransform.p / 2, nodeTransform.q));
+        joint->setChildPose(PxTransform(-geomTransform.p / 2, geomTransform.q));
         joint->setMotion(PxArticulationAxis::eTWIST, PxArticulationMotion::eFREE);
         joint->setMotion(PxArticulationAxis::eSWING1, PxArticulationMotion::eFREE);
         joint->setMotion(PxArticulationAxis::eSWING2, PxArticulationMotion::eFREE);
@@ -144,7 +178,7 @@ void PoseEntity::initArticulationFromCMU(PhysicsWorld& world) {
 
     auto addSecondaryJoint = [&](const std::string& nodeName, PxArticulationLink* link) {
         uint32_t idx = poseTree.findIdx(nodeName);
-        articulationLinks[idx] = link;
+        nodeIdxToLink[idx] = link;
         secondaryJoints.insert(idx);
     };
 
@@ -160,8 +194,79 @@ void PoseEntity::initArticulationFromCMU(PhysicsWorld& world) {
     // articulation->setArticulationFlag(PxArticulationFlag::eFIX_BASE, true);
 }
 
+void PoseEntity::resetPhysX(PhysicsWorld &world) {
+    PxArticulationCache* cache = articulation->createCache();
+    articulation->copyInternalStateToCache(*cache, PxArticulationCache::eALL);
+    PxMemZero(cache->jointPosition, sizeof(PxReal) * articulation->getDofs());
+    PxMemZero(cache->jointVelocity, sizeof(PxReal) * articulation->getDofs());
+    PxMemZero(cache->jointAcceleration, sizeof(PxReal) * articulation->getDofs());
+
+    articulation->applyCache(*cache, PxArticulationCache::eALL);
+}
+
 void PoseEntity::saveStateToPhysX(PhysicsWorld &world) {
-    articulation->teleportRootLink(PxTransform(GLMToPx(poseState.rootPos), GLMToPx(poseState.jointRot[0])), true);
+    PxArticulationCache* cache = articulation->createCache();
+    articulation->copyInternalStateToCache(*cache, PxArticulationCache::eALL);
+    PxMemZero(cache->jointPosition, sizeof(PxReal) * articulation->getDofs());
+    PxMemZero(cache->jointVelocity, sizeof(PxReal) * articulation->getDofs());
+    PxMemZero(cache->jointAcceleration, sizeof(PxReal) * articulation->getDofs());
+
+    std::vector<PxArticulationLink*> links(articulation->getNbLinks());
+    articulation->getLinks(links.data(), links.size());
+
+    std::vector<PxU32> dofStarts(links.size());
+    dofStarts[0] = 0; //We know that the root link does not have a joint
+
+    // Calculate dof starting index for each link
+    // From PhysX documentation on articulations
+    for(PxU32 i = 1; i < links.size(); ++i)
+    {
+        PxU32 llIndex = links[i]->getLinkIndex();
+        PxU32 dofs = links[i]->getInboundJointDof();
+        dofStarts[llIndex] = dofs;
+    }
+
+    PxU32 count = 0;
+    for(PxU32 i = 1; i < links.size(); ++i)
+    {
+        PxU32 dofs = dofStarts[i];
+        dofStarts[i] = count;
+        count += dofs;
+    }
+
+    cache->rootLinkData->transform = PxTransform(GLMToPx(poseState.rootPos), GLMToPx(poseState.jointRot[0]));
+
+    // TODO: The PhysX rotations are from the root transform's perspective, while
+    // the poseState joint rotations are from the parent's transform's perspective.
+    // So we have to traverse the poseState tree and convert the rotations to the right format.
+    // Still need to know: are the joint positions in twists or euler coordinates?
+
+    for (int li = 1; li < articulation->getNbLinks(); li++) {
+        uint32_t nodeIdx = linkToNodeIdx[links[li]];
+        glm::quat q = poseState.jointRot[linkToNodeIdx[links[li]]];
+        glm::vec3 euler;
+        glm::extractEulerAngleXYZ(glm::mat4_cast(q), euler.x, euler.y, euler.z);
+        // TODO: this is wrong
+        cache->jointPosition[dofStarts[li]] = 0;
+        cache->jointPosition[dofStarts[li] + 1] = 0;
+        cache->jointPosition[dofStarts[li] + 2] = 0;
+    }
+
+    articulation->applyCache(*cache, PxArticulationCache::eALL);
+
+    // articulation->teleportRootLink(PxTransform(GLMToPx(poseState.rootPos), GLMToPx(poseState.jointRot[0])), true);
+
+    /*
+    for (uint32_t idx = 1; idx < articulationLinks.size(); idx++) {
+        auto link = articulationLinks[idx];
+        if (link && secondaryJoints.count(idx) == 0) {
+            auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
+            if (joint) {
+                joint->setParentPose(PxTransform(
+                        joint->getParentPose().p, GLMToPx(poseState.jointRot[idx])));
+            }
+        }
+    }
 
     for (uint32_t idx = 1; idx < articulationLinks.size(); idx++) {
         auto link = articulationLinks[idx];
@@ -169,24 +274,53 @@ void PoseEntity::saveStateToPhysX(PhysicsWorld &world) {
             auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
             if (joint) {
                 joint->setParentPose(PxTransform(
-                        joint->getChildPose().p, GLMToPx(poseState.jointRot[idx])));
+                        joint->getParentPose().p, GLMToPx(poseState.jointRot[idx]) * joint->getParentPose().q));
             }
         }
     }
-
-    for (uint32_t idx = 1; idx < articulationLinks.size(); idx++) {
-        auto link = articulationLinks[idx];
-        if (link && secondaryJoints.count(idx) == 0) {
-            auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
-            if (joint) {
-                joint->setChildPose(PxTransform(
-                        joint->getChildPose().p, GLMToPx(poseState.jointRot[idx]) * joint->getChildPose().q));
-            }
-        }
-    }
+     */
 }
 
 void PoseEntity::loadStateFromPhysX(PhysicsWorld &world) {
+    PxArticulationCache* cache = articulation->createCache();
+    articulation->copyInternalStateToCache(*cache, PxArticulationCache::eROOT | PxArticulationCache::ePOSITION);
+
+    std::vector<PxArticulationLink*> links(articulation->getNbLinks());
+    articulation->getLinks(links.data(), links.size());
+
+    std::vector<PxU32> dofStarts(links.size());
+    dofStarts[0] = 0; //We know that the root link does not have a joint
+
+    // Calculate dof starting index for each link
+    // From PhysX documentation on articulations
+    for(PxU32 i = 1; i < links.size(); ++i)
+    {
+        PxU32 llIndex = links[i]->getLinkIndex();
+        PxU32 dofs = links[i]->getInboundJointDof();
+        dofStarts[llIndex] = dofs;
+    }
+
+    PxU32 count = 0;
+    for(PxU32 i = 1; i < links.size(); ++i)
+    {
+        PxU32 dofs = dofStarts[i];
+        dofStarts[i] = count;
+        count += dofs;
+    }
+
+    poseState.rootPos = PxToGLM(cache->rootLinkData->transform.p);
+    poseState.jointRot[0] = PxToGLM(cache->rootLinkData->transform.q);
+
+    for (int li = 1; li < articulation->getNbLinks(); ++li) {
+        float twist = cache->jointPosition[dofStarts[li]];
+        float swing1 = cache->jointPosition[dofStarts[li] + 1];
+        float swing2 = cache->jointPosition[dofStarts[li] + 2];
+        glm::quat q = glm::eulerAngleZYX(swing2, swing1, twist);
+        // TODO: this is wrong
+        poseState.jointRot[linkToNodeIdx[links[li]]] = q;
+    }
+
+    /*
     auto link = articulationLinks[poseTree.findIdx("Spine")];
     auto pose = link->getGlobalPose();
     poseState.rootPos = PxToGLM(pose.p);
@@ -214,6 +348,7 @@ void PoseEntity::loadStateFromPhysX(PhysicsWorld &world) {
             }
         }
     }
+     */
 
     updateJointPositions();
 }
