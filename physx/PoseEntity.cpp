@@ -267,66 +267,6 @@ void PoseEntity::initPhysX(PhysicsWorld& world) {
     }
 }
 
-std::tuple<PxArticulationLink*, PxTransform> PoseEntity::createArticulationLink(
-        PhysicsWorld& world, const std::string& nodeName,  PxArticulationLink* parentLink, const PxTransform& nodeTransform)
-{
-    uint32_t nodeIdx = poseTree.findIdx(nodeName);
-    PoseTreeNode& node = poseTree[nodeIdx];
-    PxVec3 geomOffset = PxVec3(glm::length(node.offset), 0, 0);
-    PxQuat geomRot;
-    if (node.offset.x >= 0) {
-        geomRot = GLMToPx(quatBetweenTwoVectors({1, 0, 0}, glm::normalize(node.offset)));
-    }
-    else {
-        geomRot = GLMToPx(quatBetweenTwoVectors({-1, 0, 0}, glm::normalize(node.offset)));
-    }
-    PxTransform geomTransform = PxTransform(geomOffset, geomRot);
-
-    PxArticulationLink* link = articulation->createLink(parentLink, nodeTransform);
-    auto geometry = PxBoxGeometry(node.boneWidthX / 2, glm::length(node.offset) / 2, node.boneWidthZ / 2);
-    PxRigidActorExt::createExclusiveShape(*link, geometry, *world.material);
-    PxRigidBodyExt::updateMassAndInertia(*link, 1.0f);
-    nodeToLinkPtr[nodeIdx] = link;
-
-    if (parentLink) {
-        auto joint = static_cast<PxArticulationJointReducedCoordinate*>(link->getInboundJoint());
-        joint->setJointType(PxArticulationJointType::eSPHERICAL);
-        joint->setParentPose(PxTransform(nodeTransform.p / 2, nodeTransform.q));
-        if (node.offset.x >= 0) {
-            joint->setChildPose(PxTransform(geomTransform.p / 2, geomTransform.q));
-        }
-        else {
-            joint->setChildPose(PxTransform(-geomTransform.p / 2, geomTransform.q));
-        }
-        joint->setMotion(PxArticulationAxis::eTWIST, PxArticulationMotion::eFREE);
-        joint->setMotion(PxArticulationAxis::eSWING1, PxArticulationMotion::eFREE);
-        joint->setMotion(PxArticulationAxis::eSWING2, PxArticulationMotion::eFREE);
-    }
-
-    return {link, geomTransform};
-}
-
-void PoseEntity::createArticulationTree(
-        PhysicsWorld& world, uint32_t nodeIdx, PxArticulationLink* parentLink, const PxTransform& nodeTransform) {
-
-    std::stack<std::tuple<uint32_t, PxArticulationLink*, PxTransform>> currentJoint;
-    for (uint32_t idx : poseTree[nodeIdx].childJoints) {
-        currentJoint.push(std::tuple(idx, parentLink, nodeTransform));
-    }
-
-    while (!currentJoint.empty()) {
-        auto [jointIdx, parentLink, parentTransform] = currentJoint.top();
-        currentJoint.pop();
-        PoseTreeNode& node = poseTree[jointIdx];
-        auto [link, transform] = createArticulationLink(world, node.name, parentLink, parentTransform);
-        for (uint32_t idx : poseTree[jointIdx].childJoints) {
-            if (idx < poseTree.numJoints) {
-                currentJoint.push(std::tuple(idx, link, transform));
-            }
-        }
-    }
-}
-
 void PoseEntity::initArticulationDefault(PhysicsWorld& world) {
     bodyToLinkMap.clear();
     bodyToTransformMap.clear();
@@ -375,54 +315,6 @@ void PoseEntity::initArticulationDefault(PhysicsWorld& world) {
         bodyToTransformMap[joint.name] = bodyTransform;
         linkToBodyMap[link] = joint.name;
     }
-}
-
-void PoseEntity::initArticulationFromCMU(PhysicsWorld& world) {
-    auto& hip = *poseTree["Hips"];
-
-    // PxTransform rootTransform = PxTransform(GLMToPx(hip.offset));
-    PxTransform rootTransform = PxTransform(GLMToPx(hip.offset), PxQuat(M_PI, {0, 1, 0}));
-    auto [spineLink, spineTransform] = createArticulationLink(world, "Spine", nullptr, rootTransform);
-    auto [spine1Link, spine1Transform] = createArticulationLink(world, "Spine1", spineLink, spineTransform);
-    auto [neck1Link, neck1Transform] = createArticulationLink(world, "Neck1", spine1Link, spine1Transform);
-    auto [headLink, headTransform] = createArticulationLink(world, "Head", neck1Link, neck1Transform);
-
-    auto [leftArmLink, leftArmTransform] = createArticulationLink(world, "LeftArm", spine1Link, spine1Transform);
-    auto [leftForeArmLink, leftForeArmTransform] = createArticulationLink(world, "LeftForeArm", leftArmLink, leftArmTransform);
-    auto [leftHandLink, leftHandTransform] = createArticulationLink(world, "LeftHand", leftForeArmLink, leftForeArmTransform);
-    auto [leftHandIndex1Link, leftHandIndex1Transform] = createArticulationLink(world, "LeftHandIndex1", leftHandLink, leftHandTransform);
-
-    auto [rightArmLink, rightArmTransform] = createArticulationLink(world, "RightArm", spine1Link, spine1Transform);
-    auto [rightForeArmLink, rightForeArmTransform] = createArticulationLink(world, "RightForeArm", rightArmLink, rightArmTransform);
-    auto [rightHandLink, rightHandTransform] = createArticulationLink(world, "RightHand", rightForeArmLink, rightForeArmTransform);
-    auto [rightHandIndex1Link, rightHandIndex1Transform] = createArticulationLink(world, "RightHandIndex1", rightHandLink, rightHandTransform);
-
-    auto spineRootTransform = PxTransform(rootTransform.p, spineTransform.q);
-    auto [leftUpLegLink, leftUpLegTransform] = createArticulationLink(world, "LeftUpLeg", spineLink, spineRootTransform);
-    auto [leftLegLink, leftLegTransform] = createArticulationLink(world, "LeftLeg", leftUpLegLink, leftUpLegTransform);
-    auto [leftFootLink, leftFootTransform] = createArticulationLink(world, "LeftFoot", leftLegLink, leftLegTransform);
-    auto [leftToeBaseLink, leftToeBaseTransform] = createArticulationLink(world, "LeftToeBase", leftFootLink, leftFootTransform);
-
-    auto [rightUpLegLink, rightUpLegTransform] = createArticulationLink(world, "RightUpLeg", spineLink, spineRootTransform);
-    auto [rightLegLink, rightLegTransform] = createArticulationLink(world, "RightLeg", rightUpLegLink, rightUpLegTransform);
-    auto [rightFootLink, rightFootTransform] = createArticulationLink(world, "RightFoot", rightLegLink, rightLegTransform);
-    auto [rightToeBaseLink, rightToeBaseTransform] = createArticulationLink(world, "RightToeBase", rightFootLink, rightFootTransform);
-
-    auto addSecondaryJoint = [&](const std::string& nodeName, PxArticulationLink* link) {
-        uint32_t idx = poseTree.findIdx(nodeName);
-        nodeToLinkPtr[idx] = link;
-    };
-
-    addSecondaryJoint("LowerBack", spineLink);
-    addSecondaryJoint("LHipJoint", leftUpLegLink);
-    addSecondaryJoint("RHipJoint", rightUpLegLink);
-    addSecondaryJoint("Neck", neck1Link);
-    addSecondaryJoint("LeftShoulder", leftArmLink);
-    addSecondaryJoint("RightShoulder", rightArmLink);
-    addSecondaryJoint("LeftFingerBase", leftHandIndex1Link);
-    addSecondaryJoint("RightFingerBase", rightHandIndex1Link);
-
-    // articulation->setArticulationFlag(PxArticulationFlag::eFIX_BASE, true);
 }
 
 void PoseEntity::resetPhysX(PhysicsWorld &world) {

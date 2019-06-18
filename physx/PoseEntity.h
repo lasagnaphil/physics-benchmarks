@@ -136,8 +136,6 @@ struct PoseEntity {
 
     void initArticulationDefault(PhysicsWorld& world);
 
-    void initArticulationFromCMU(PhysicsWorld& world);
-
     void resetPhysX(PhysicsWorld &world);
 
     void stop(PhysicsWorld &world);
@@ -157,12 +155,6 @@ struct PoseEntity {
     void updateJointPositions();
 
 private:
-
-    std::tuple<PxArticulationLink*, PxTransform> createArticulationLink(
-            PhysicsWorld& world, const std::string& nodeName, PxArticulationLink* parentLink, const PxTransform& nodeTransform);
-
-    void createArticulationTree(
-            PhysicsWorld& world, uint32_t nodeIdx, PxArticulationLink* parentLink, const PxTransform& nodeTransform);
 
     void calculateInitialBoneTransforms();
 
