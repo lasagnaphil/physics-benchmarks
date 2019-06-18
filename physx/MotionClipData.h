@@ -125,7 +125,7 @@ struct PoseTree {
             uint32_t idx = indices.top();
             indices.pop();
             PoseTreeNode& node = allNodes[idx];
-            fun(node);
+            fun(node, idx);
             for (int childIdx : node.childJoints) {
                 indices.push(childIdx);
             }

@@ -40,10 +40,9 @@ struct PhysXDebugRenderer {
         // world.scene->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_EDGES, 1.0f);
         // world.scene->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_STATIC, 1.0f);
         // world.scene->setVisualizationParameter(PxVisualizationParameter::eCOLLISION_DYNAMIC, 1.0f);
-        // world.scene->setVisualizationParameter(PxVisualizationParameter::eJOINT_LOCAL_FRAMES, 1.0f);
+        world.scene->setVisualizationParameter(PxVisualizationParameter::eJOINT_LOCAL_FRAMES, 0.1f);
         // world.scene->setVisualizationParameter(PxVisualizationParameter::eJOINT_LIMITS, 1.0f);
         // world.scene->setVisualizationParameter(PxVisualizationParameter::eMBP_REGIONS, 1.0f);
-        world.scene->setVisualizationParameter(PxVisualizationParameter::eJOINT_LOCAL_FRAMES, 0.1f);
 
         debugShader = Resources::make<Shader>("../shaders/physx_debug.vert", "../shaders/physx_debug.frag");
         debugShader->compile();

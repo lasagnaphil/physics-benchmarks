@@ -25,14 +25,92 @@
 struct PhongRenderer;
 struct GizmosRenderer;
 
+struct BVHArticulationMap {
+    enum JointType {
+        FreeJoint, BallJoint
+    };
+    enum class ShapeType {
+        Capsule, Cylinder, Sphere, Box
+    };
+    struct CapsuleShape {
+        glm::vec3 direction;
+        glm::vec3 offset;
+        float radius;
+        float height;
+    };
+    struct CylinderShape {
+        glm::vec3 direction;
+        glm::vec3 offset;
+        float radius;
+        float height;
+    };
+    struct SphereShape {
+        glm::vec3 offset;
+        float radius;
+    };
+    struct BoxShape {
+        glm::vec3 size;
+        glm::vec3 offset;
+    };
+    struct Shape {
+        ShapeType type;
+        union {
+            CapsuleShape capsule;
+            CylinderShape cylinder;
+            SphereShape sphere;
+            BoxShape box;
+        };
+    };
+
+    struct Joint {
+        JointType type;
+        std::string name;
+        std::string parentName;
+        glm::vec3 size;
+        float mass;
+        std::string bvhNode;
+        glm::vec3 bodyTranslation;
+        glm::vec3 jointTranslation;
+        Shape shape;
+    };
+
+
+    std::string skeletonName;
+    std::vector<Joint> joints;
+
+    std::unordered_map<std::string, uint32_t> jointNameMapping;
+
+    Joint& getJoint(uint32_t idx) {
+        return joints[idx];
+    }
+
+    Joint& getJoint(const std::string& name) {
+        return joints[jointNameMapping[name]];
+    }
+
+    static BVHArticulationMap fromFile(const std::string& filename);
+};
+
 struct PoseEntity {
     PoseTree poseTree;
     PoseState poseState;
+    BVHArticulationMap bvhArtiMap;
 
     physx::PxArticulationReducedCoordinate* articulation;
-    std::unordered_set<uint32_t> secondaryJoints;
-    std::unordered_map<uint32_t, physx::PxArticulationLink*> nodeIdxToLink;
-    std::unordered_map<physx::PxArticulationLink*, uint32_t> linkToNodeIdx;
+
+    std::unordered_map<uint32_t, PxArticulationLink*> nodeToLinkPtr;
+    std::unordered_map<uint32_t, uint32_t> nodeToLinkIdx;
+    std::unordered_map<uint32_t, uint32_t> linkToNodeIdx;
+    std::unordered_map<uint32_t, uint32_t> secondaryLinkToNodeIdx;
+
+    std::unordered_map<std::string, PxArticulationLink*> bodyToLinkMap;
+    std::unordered_map<std::string, PxTransform> bodyToTransformMap;
+    std::unordered_map<PxArticulationLink*, std::string> linkToBodyMap;
+
+    std::vector<float> jointPosition;
+
+    std::vector<uint32_t> dofStarts;
+    uint32_t dofCount;
 
     // used for rendering
     std::vector<glm::vec3> lineVertices;
@@ -44,9 +122,11 @@ struct PoseEntity {
     Camera* camera = nullptr;
 
     PoseEntity() = default;
-    PoseEntity(PoseTree tree, PoseState state, Ref<Transform> transform, Camera* camera) :
+    PoseEntity(PoseTree tree, PoseState state, BVHArticulationMap bvhArtiMap,
+            Ref<Transform> transform, Camera* camera) :
         poseTree(std::move(tree)),
         poseState(std::move(state)),
+        bvhArtiMap(std::move(bvhArtiMap)),
         transform(transform), camera(camera)
     {}
 
@@ -54,9 +134,13 @@ struct PoseEntity {
 
     void initPhysX(PhysicsWorld& world);
 
+    void initArticulationDefault(PhysicsWorld& world);
+
     void initArticulationFromCMU(PhysicsWorld& world);
 
     void resetPhysX(PhysicsWorld &world);
+
+    void stop(PhysicsWorld &world);
 
     void saveStateToPhysX(PhysicsWorld &world);
 
@@ -76,6 +160,9 @@ private:
 
     std::tuple<PxArticulationLink*, PxTransform> createArticulationLink(
             PhysicsWorld& world, const std::string& nodeName, PxArticulationLink* parentLink, const PxTransform& nodeTransform);
+
+    void createArticulationTree(
+            PhysicsWorld& world, uint32_t nodeIdx, PxArticulationLink* parentLink, const PxTransform& nodeTransform);
 
     void calculateInitialBoneTransforms();
 

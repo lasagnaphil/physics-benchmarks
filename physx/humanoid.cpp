@@ -24,6 +24,7 @@ public:
         cameraTransform->rotate(M_PI/4, {0.0f, 0.0f, 1.0f});
 
         world.init(2);
+        world.scene->setGravity(PxVec3(0, 0, 0));
 
         Ref<Image> checkerImage = Resources::make<Image>("gengine/resources/textures/checker.png");
         Ref<Texture> planeTexture = Resources::make<Texture>(checkerImage);
@@ -38,7 +39,7 @@ public:
         groundMat->texDiffuse = planeTexture;
         groundMat->texSpecular = {};
 
-        bool success = MotionClipData::loadFromFile("gengine/resources/cmu_07_02_1.bvh", poseData, 0.01f);
+        bool success = MotionClipData::loadFromFile("gengine/resources/run_merged_rtg_Take_001.bvh", poseData, 0.01f);
         if (!success) {
             std::cerr << "Failed to load pose data" << std::endl;
             exit(EXIT_FAILURE);
@@ -50,10 +51,11 @@ public:
         Transform::addChildToParent(poseTransform, rootTransform);
 
         motionClipPlayer = MotionClipPlayer(&poseData);
-        motionClipPlayer.setFrame(0);
+        motionClipPlayer.setFrame(1);
         motionClipPlayer.init();
 
-        poseEntity = PoseEntity(poseData.poseTree, motionClipPlayer.getPoseState(),
+        auto bvhArtiMap = BVHArticulationMap::fromFile("../humanoid_complex.xml");
+        poseEntity = PoseEntity(poseData.poseTree, motionClipPlayer.getPoseState(), bvhArtiMap,
                 poseTransform, &trackballCamera);
         poseEntity.init();
         poseEntity.initPhysX(world);
@@ -84,7 +86,11 @@ public:
             poseEntity.poseState = motionClipPlayer.getPoseState();
             motionClipPlayer.shouldUpdate = false;
 
-            poseEntity.saveStateToPhysX(world);
+            bool advanced = world.advance(dt);
+            if (advanced) {
+                world.fetchResults();
+            }
+            // poseEntity.saveStateToPhysX(world);
             poseEntity.updateJointPositions();
         }
 
@@ -97,14 +103,16 @@ public:
             poseEntity.updateJointPositions();
         }
 
-        if (inputMgr->isKeyEntered(SDL_SCANCODE_RETURN)) {
+        // if (inputMgr->isKeyEntered(SDL_SCANCODE_RETURN)) {
+            // poseEntity.saveStateToPhysX(world);
+            poseEntity.stop(world);
             bool advanced = world.advance(dt);
             if (advanced) {
                 world.fetchResults();
             }
             // poseEntity.loadStateFromPhysX(world);
             poseEntity.updateJointPositions();
-        }
+        // }
         // poseEntity.loadStateFromPhysX(world);
     }
 

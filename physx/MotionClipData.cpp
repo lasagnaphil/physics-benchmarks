@@ -173,25 +173,31 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                 childJoint.offset *= scale;
 
                 int channels;
-                std::string channelNames[3];
-                newLine() >> keyword >> channels >> channelNames[0] >> channelNames[1] >> channelNames[2];
-                if (channels != 3) {
-                    std::cerr << "Only joints with 3 channels supported!" << std::endl;
+                std::vector<std::string> channelNames;
+                newLine() >> keyword >> channels;
+                if (channels > 0 && channels <= 6) {
+                    channelNames.resize(channels);
+                }
+                else {
+                    fprintf(stderr, "Invalid number of channels. (%d)", channels);
                     error = true;
                     break;
                 }
-                for (int i = 0; i < 3; i++) {
-                    if (auto channelType = stringToChannelType(channelNames[i])) {
+                for (int c = 0; c < channels; c++) {
+                    iss >> channelNames[c];
+                }
+                for (int c = 0; c < channels; c++) {
+                    if (auto channelType = stringToChannelType(channelNames[c])) {
                         channelTypeData.push_back(*channelType);
                     }
                     else {
-                        std::cerr << "Invalid channel type." << std::endl;
+                        fprintf(stderr, "Invalid channel type.");
                         error = true;
                         break;
                     }
                 }
                 if (error) break;
-                data.numChannels += 3; data.poseTree.numJoints++; data.poseTree.numNodes++; // CHANNELS
+                data.numChannels += channels; data.poseTree.numJoints++; data.poseTree.numNodes++; // CHANNELS
                 curJoint.childJoints.push_back(childJointID);
                 childJoint.parent = curJointID;
                 curJointID = childJointID;
@@ -268,9 +274,9 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                 data.poseStates.resize(data.numFrames);
                 float num;
                 glm::quat rot = glm::identity<glm::quat>();
+                int rotCount = 0;
                 for (int f = 0; f < data.numFrames; f++) {
                     auto& poseState = data.poseStates[f];
-                    poseState.jointRot.reserve((data.numChannels - 3) / 3);
                     newLine();
                     for (int c = 0; c < data.numChannels; c++) {
                         iss >> num;
@@ -285,17 +291,24 @@ bool MotionClipData::loadFromFile(const std::string &filename, MotionClipData &d
                             switch (channelTypeData[c]) {
                                 case ChannelType::Xrot:
                                     rot = glm::rotate(rot, glm::radians(num), {1, 0, 0});
+                                    rotCount++;
                                     break;
                                 case ChannelType::Yrot:
                                     rot = glm::rotate(rot, glm::radians(num), {0, 1, 0});
+                                    rotCount++;
                                     break;
                                 case ChannelType::Zrot:
                                     rot = glm::rotate(rot, glm::radians(num), {0, 0, 1});
+                                    rotCount++;
+                                    break;
+                                default:
+                                    // Ignore Xposition, Yposition, Zposition
                                     break;
                             }
-                            if (c % 3 == 2) {
+                            if (rotCount == 3) {
                                 poseState.jointRot.push_back(rot);
                                 rot = glm::identity<glm::quat>();
+                                rotCount = 0;
                             }
                         }
                     }

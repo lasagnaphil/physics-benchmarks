@@ -10,6 +10,13 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+namespace glm {
+    struct transform {
+        glm::vec3 p;
+        glm::quat q;
+    };
+}
+
 inline glm::vec2 PxToGLM(const physx::PxVec2& v) {
     return glm::vec2 {v.x, v.y};
 }
