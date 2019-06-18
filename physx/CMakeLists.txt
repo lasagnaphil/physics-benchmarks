@@ -7,8 +7,7 @@ add_subdirectory(gengine)
 set(PHYSICS_PHYSX_SOURCES PhysicsWorld.cpp)
 add_executable(physics_physx_cannon ${PHYSICS_PHYSX_SOURCES} cannon.cpp)
 add_executable(physics_physx_dominoes ${PHYSICS_PHYSX_SOURCES} dominoes.cpp)
-add_executable(physics_physx_humanoid ${PHYSICS_PHYSX_SOURCES}
-        MotionClipData.cpp MotionClipPlayer.cpp PoseEntity.cpp humanoid.cpp)
+add_executable(physics_physx_humanoid ${PHYSICS_PHYSX_SOURCES} PoseEntity.cpp humanoid.cpp)
 
 set(PHYSX_DEMOS physics_physx_cannon physics_physx_dominoes physics_physx_humanoid)
 

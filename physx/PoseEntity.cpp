@@ -446,7 +446,7 @@ void PoseEntity::calculateInitialBoneTransforms() {
         else {
             initialRotation = quatBetweenTwoVectors({0, -1, 0}, glm::normalize(node.offset));
         }
-        glm::mat4 initialScale = glm::scale(glm::vec3 {node.boneWidthX, glm::length(node.offset), node.boneWidthZ});
+        glm::mat4 initialScale = glm::scale(glm::vec3 {0.05f, glm::length(node.offset), 0.05f});
         glm::mat4 initialTrans;
         if (node.offset.y >= 0) {
             initialTrans = glm::translate(glm::vec3{0.0f, 0.5f, 0.0f});

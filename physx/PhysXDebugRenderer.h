@@ -44,8 +44,8 @@ struct PhysXDebugRenderer {
         // world.scene->setVisualizationParameter(PxVisualizationParameter::eJOINT_LIMITS, 1.0f);
         // world.scene->setVisualizationParameter(PxVisualizationParameter::eMBP_REGIONS, 1.0f);
 
-        debugShader = Resources::make<Shader>("../shaders/physx_debug.vert", "../shaders/physx_debug.frag");
-        debugShader->compile();
+        debugShader = Resources::make<Shader>("physx_debug");
+        debugShader->compileFromFile("shaders/physx_debug.vert", "shaders/physx_debug.frag");
 
         const PxRenderBuffer &renderBuffer = world.getRenderBuffer();
 

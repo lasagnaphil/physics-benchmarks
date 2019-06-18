@@ -20,7 +20,7 @@ public:
 
         world.init();
 
-        Ref<Image> checkerImage = Resources::make<Image>("gengine/resources/textures/checker.png");
+        Ref<Image> checkerImage = Resources::make<Image>("resources/textures/checker.png");
         Ref<Texture> planeTexture = Resources::make<Texture>(checkerImage);
         checkerImage.release();
 
